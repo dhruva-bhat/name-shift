@@ -4,8 +4,8 @@ import Quartz
 import QuickLookThumbnailing
 import SwiftUI
 
-/// Order, selection, preview and countdown state for the merge tray. Auto-confirms after
-/// `duration` unless the user interacts (any key, click, or drag), which pauses it until Return.
+/// Order, selection and preview state for the merge tray. Nothing happens until the user
+/// confirms (Merge button / Return) or cancels (Cancel / Esc).
 @MainActor
 final class TrayModel: ObservableObject {
     struct Item: Identifiable {
@@ -17,54 +17,30 @@ final class TrayModel: ObservableObject {
     @Published var items: [Item]
     @Published var selectedID: UUID?
     @Published private(set) var isPreviewing = false
-    @Published private(set) var remaining: Double
-    @Published private(set) var isPaused = false
-    let duration: Double
     var onFinish: (([FileDescriptor]?) -> Void)?
-    private var timer: Timer?
 
-    init(files: [FileDescriptor], duration: Double = 2.0) {
+    init(files: [FileDescriptor]) {
         let items = files.map { Item(file: $0) }
         self.items = items
         selectedID = items.first?.id
-        self.duration = duration
-        remaining = duration
     }
 
     var selectedIndex: Int? { items.firstIndex { $0.id == selectedID } }
     var selectedItem: Item? { selectedIndex.map { items[$0] } }
 
-    func start() {
-        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
-    }
-
-    private func tick() {
-        guard !isPaused else { return }
-        remaining -= 1.0 / 30
-        if remaining <= 0 { confirm() }
-    }
-
-    func pause() { isPaused = true }
     func confirm() { finish(items.map(\.file)) }
     func cancel() { finish(nil) }
 
     func togglePreview() {
-        pause()
         isPreviewing.toggle()
     }
 
     func select(_ id: UUID) {
-        pause()
         selectedID = id
     }
 
     /// Arrow keys: move the selection (the preview follows it).
     func selectNeighbor(_ offset: Int) {
-        pause()
         guard let i = selectedIndex else { selectedID = items.first?.id; return }
         selectedID = items[min(max(i + offset, 0), items.count - 1)].id
     }
@@ -72,7 +48,6 @@ final class TrayModel: ObservableObject {
     /// Option-arrow keys: move the selected file within the merge order.
     func moveSelected(by offset: Int) {
         guard let id = selectedID else { return }
-        pause()
         move(id, by: offset)
     }
 
@@ -101,8 +76,6 @@ final class TrayModel: ObservableObject {
     }
 
     private func finish(_ result: [FileDescriptor]?) {
-        timer?.invalidate()
-        timer = nil
         let callback = onFinish
         onFinish = nil
         callback?(result)
@@ -123,10 +96,7 @@ struct TrayView: View {
             HStack {
                 Text("Merge \(model.items.count) files → PDF").font(.headline)
                 Spacer()
-                if !model.isPaused {
-                    Text("Merging in \(String(format: "%.1f", max(model.remaining, 0)))s · press any key to check")
-                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                }
+                Text("Check the order, then Merge").font(.caption).foregroundStyle(.secondary)
             }
 
             ScrollViewReader { proxy in
@@ -161,10 +131,6 @@ struct TrayView: View {
                          + (item.file.pageCount.map { " · \($0) page\($0 == 1 ? "" : "s")" } ?? ""))
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
-            } else {
-                ProgressView(value: model.isPaused ? 0 : max(model.remaining, 0) / model.duration)
-                    .progressViewStyle(.linear)
-                    .opacity(model.isPaused ? 0 : 1)
             }
 
             HStack {
@@ -320,7 +286,6 @@ final class ReorderTrayController {
         }
 
         model.loadThumbnails(scale: screen?.backingScaleFactor ?? 2)
-        model.start()
     }
 
     private static func handleKey(_ keyCode: UInt16, option: Bool, model: TrayModel) {
@@ -330,7 +295,7 @@ final class ReorderTrayController {
         case 124: option ? model.moveSelected(by: 1) : model.selectNeighbor(1)    // →
         case 36, 76: model.confirm()                                          // Return / Enter
         case 53: model.isPreviewing ? model.togglePreview() : model.cancel()  // Esc closes preview first
-        default: model.pause()  // any other key just stops the countdown
+        default: break  // swallow other keys so they never reach Finder
         }
     }
 

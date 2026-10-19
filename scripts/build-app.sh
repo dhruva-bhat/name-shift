@@ -26,6 +26,12 @@ if [[ -z "$IDENTITY" ]]; then
     | grep -Eo '"(Developer ID Application|Apple Development|NameShift Dev)[^"]*"' | head -1 | tr -d '"' || true)"
 fi
 if [[ -z "$IDENTITY" ]]; then
+  # A self-signed cert isn't "valid" (trusted) so -v hides it, but it signs fine and gives TCC a
+  # stable identity, which is all local testing needs.
+  IDENTITY="$(security find-identity -p codesigning 2>/dev/null \
+    | grep -Eo '"NameShift Dev"' | head -1 | tr -d '"' || true)"
+fi
+if [[ -z "$IDENTITY" ]]; then
   echo "warning: no signing identity found; signing ad-hoc. Permissions will need re-granting after each rebuild." >&2
   IDENTITY="-"
 fi
