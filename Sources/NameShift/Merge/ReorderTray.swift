@@ -51,14 +51,17 @@ final class TrayModel: ObservableObject {
         move(id, by: offset)
     }
 
-    /// Returns how many positions the item actually moved (clamped at the ends).
-    @discardableResult
-    func move(_ id: UUID, by steps: Int) -> Int {
-        guard let from = items.firstIndex(where: { $0.id == id }) else { return 0 }
-        let to = min(max(from + steps, 0), items.count - 1)
-        guard to != from else { return 0 }
+    func move(_ id: UUID, by steps: Int) {
+        guard let from = items.firstIndex(where: { $0.id == id }) else { return }
+        move(id, to: from + steps)
+    }
+
+    /// Moves the item to `index` (clamped). No-op if it's already there.
+    func move(_ id: UUID, to index: Int) {
+        guard let from = items.firstIndex(where: { $0.id == id }) else { return }
+        let to = min(max(index, 0), items.count - 1)
+        guard to != from else { return }
         items = MergeOrdering.move(items, from: from, to: to)
-        return to - from
     }
 
     func loadThumbnails(scale: CGFloat) {
@@ -87,9 +90,13 @@ struct TrayView: View {
     static let spacing: CGFloat = 8
 
     @ObservedObject var model: TrayModel
-    @State private var draggingID: UUID?
-    @State private var dragOffset: CGFloat = 0
-    @State private var consumed: CGFloat = 0
+    /// The item being dragged and the slot it started in.
+    @State private var dragging: (id: UUID, startIndex: Int)?
+    /// Pointer travel since the drag began, measured in the strip's (fixed) coordinate space.
+    @State private var dragTranslation: CGFloat = 0
+
+    private static let stride = itemWidth + spacing
+    private static let reorderAnimation = Animation.spring(response: 0.25, dampingFraction: 0.85)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -103,22 +110,26 @@ struct TrayView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Self.spacing) {
                         ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
-                            let dragging = draggingID == item.id
+                            let isDragged = dragging?.id == item.id
                             TrayItemView(item: item, position: index + 1, selected: item.id == model.selectedID)
                                 .id(item.id)
-                                .offset(x: dragging ? dragOffset : 0)
-                                .scaleEffect(dragging ? 1.06 : 1)
-                                .zIndex(dragging ? 1 : 0)
+                                .offset(x: isDragged ? dragOffset(currentIndex: index) : 0)
+                                .scaleEffect(isDragged ? 1.06 : 1)
+                                .shadow(color: .black.opacity(isDragged ? 0.25 : 0), radius: 6, y: 2)
+                                .zIndex(isDragged ? 1 : 0)
+                                // The dragged item tracks the pointer exactly; only its neighbours animate.
+                                .transaction { if isDragged { $0.animation = nil } }
                                 .onTapGesture(count: 2) { model.select(item.id); if !model.isPreviewing { model.togglePreview() } }
                                 .onTapGesture { model.select(item.id) }
-                                .gesture(drag(item))
+                                .gesture(drag(item, index: index))
                         }
                     }
                     .padding(.vertical, 4)
-                    .animation(.spring(response: 0.22, dampingFraction: 0.85), value: model.items.map(\.id))
+                    .coordinateSpace(name: "strip")
                 }
                 .onChange(of: model.selectedID) { _, id in
-                    if let id { withAnimation { proxy.scrollTo(id) } }
+                    // Keyboard selection scrolls into view; a drag must not scroll the strip under the pointer.
+                    if let id, dragging == nil { withAnimation { proxy.scrollTo(id) } }
                 }
             }
 
@@ -152,23 +163,33 @@ struct TrayView: View {
         min(max(CGFloat(count) * (itemWidth + spacing) + 28, previewing ? 600 : 460), 760)
     }
 
-    private func drag(_ item: TrayModel.Item) -> some Gesture {
-        DragGesture(minimumDistance: 3)
+    /// Visual offset that keeps the dragged item under the pointer even after its slot changes.
+    private func dragOffset(currentIndex: Int) -> CGFloat {
+        guard let dragging else { return 0 }
+        return dragTranslation - CGFloat(currentIndex - dragging.startIndex) * Self.stride
+    }
+
+    private func drag(_ item: TrayModel.Item, index: Int) -> some Gesture {
+        // Measured in the strip's space: in the item's own space the translation would jump by a
+        // whole slot every time the item is reordered, which made the drag oscillate.
+        DragGesture(minimumDistance: 3, coordinateSpace: .named("strip"))
             .onChanged { value in
-                if draggingID == nil { model.select(item.id); draggingID = item.id; consumed = 0 }
-                dragOffset = value.translation.width - consumed
-                let stride = Self.itemWidth + Self.spacing
-                let steps = Int((dragOffset / stride).rounded())
-                if steps != 0 {
-                    let moved = model.move(item.id, by: steps)
-                    consumed += CGFloat(moved) * stride
-                    dragOffset = value.translation.width - consumed
+                if dragging == nil {
+                    dragging = (item.id, index)
+                    model.selectedID = item.id
                 }
+                guard let dragging else { return }
+                dragTranslation = value.translation.width
+                // Target slot from the total distance, not accumulated steps, so it can't drift.
+                let target = dragging.startIndex + Int((dragTranslation / Self.stride).rounded())
+                withAnimation(Self.reorderAnimation) { model.move(item.id, to: target) }
             }
             .onEnded { _ in
-                draggingID = nil
-                dragOffset = 0
-                consumed = 0
+                // Settle the dropped item into its slot.
+                withAnimation(Self.reorderAnimation) {
+                    dragging = nil
+                    dragTranslation = 0
+                }
             }
     }
 }
