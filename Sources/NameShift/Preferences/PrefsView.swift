@@ -30,6 +30,7 @@ struct PrefsView: View {
             Toggle("Paused", isOn: $settings.isPaused)
         }
         .formStyle(.grouped)
-        .frame(width: 440)
+        // A grouped Form scrolls, so it has no natural height of its own; give it one.
+        .frame(width: 440, height: 290)
     }
 }

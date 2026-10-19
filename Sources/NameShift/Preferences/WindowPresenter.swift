@@ -15,9 +15,13 @@ final class WindowPresenter {
         }
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
         if resizable { style.insert(.resizable) }
-        let window = NSWindow(contentRect: .zero, styleMask: style, backing: .buffered, defer: false)
+        let host = NSHostingController(rootView: content())
+        // Size the window from the SwiftUI content; a zero-sized window shows nothing.
+        host.sizingOptions = [.preferredContentSize]
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.view.fittingSize),
+                              styleMask: style, backing: .buffered, defer: false)
         window.title = title
-        window.contentViewController = NSHostingController(rootView: content())
+        window.contentViewController = host
         window.isReleasedWhenClosed = false
         if floating {
             window.level = .floating

@@ -1,15 +1,20 @@
+#if DEBUG
 import AppKit
 import NameShiftCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// `NameShift --render-readme-images <dir>` renders the real wheel, merge tray, HUD and onboarding
+/// Debug builds only: `NameShift --render-readme-images <dir>` renders the real wheel, merge tray, HUD and onboarding
 /// views (light + dark) into PNGs for the README, then exits. No screen capture or permissions
 /// involved; the Finder window behind the wheel is a drawn mock-up.
 @MainActor
 enum ReadmeImages {
     static func renderIfRequested() -> Bool {
         let args = CommandLine.arguments
+        if let flag = args.firstIndex(of: "--render-app-icon"), flag + 1 < args.count {
+            renderAppIcon(to: URL(fileURLWithPath: args[flag + 1], isDirectory: true))
+            return true
+        }
         guard let flag = args.firstIndex(of: "--render-readme-images"), flag + 1 < args.count else { return false }
         let dir = URL(fileURLWithPath: args[flag + 1], isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -24,6 +29,7 @@ enum ReadmeImages {
             write(trayScene(), scheme, dir.appendingPathComponent("merge-tray-\(suffix).png"))
             write(hudScene(), scheme, dir.appendingPathComponent("hud-\(suffix).png"))
             write(onboardingScene(), scheme, dir.appendingPathComponent("onboarding-\(suffix).png"))
+            write(preferencesScene(), scheme, dir.appendingPathComponent("preferences-\(suffix).png"))
         }
         print("Rendered README images to \(dir.path)")
         return true
@@ -78,6 +84,14 @@ enum ReadmeImages {
         return SceneBackdrop { HUDView(model: model) }
     }
 
+    private static func preferencesScene() -> some View {
+        // A throwaway defaults suite, so rendering never touches the user's settings.
+        let defaults = UserDefaults(suiteName: "NameShift.readme-images") ?? .standard
+        defaults.removePersistentDomain(forName: "NameShift.readme-images")
+        return PrefsView(settings: SettingsStore(defaults: defaults))
+            .background(Color(nsColor: .windowBackgroundColor))
+    }
+
     private static func onboardingScene() -> some View {
         let permissions = PermissionCenter(fixedStatus: [.inputMonitoring: .granted, .accessibility: .granted,
                                                          .automation: .notDetermined])
@@ -103,6 +117,24 @@ enum ReadmeImages {
             }
             return true
         }
+    }
+
+    // MARK: - App icon
+
+    /// Writes a macOS `.iconset` (every size iconutil expects) for scripts/make-app-icon.sh.
+    private static func renderAppIcon(to dir: URL) {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for points in [16, 32, 128, 256, 512] {
+            for scale in [1, 2] {
+                let renderer = ImageRenderer(content: AppIconView().frame(width: 1024, height: 1024))
+                renderer.scale = CGFloat(points * scale) / 1024
+                guard let image = renderer.cgImage,
+                      let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { continue }
+                let name = scale == 1 ? "icon_\(points)x\(points).png" : "icon_\(points)x\(points)@2x.png"
+                try? png.write(to: dir.appendingPathComponent(name))
+            }
+        }
+        print("Rendered app icon set to \(dir.path)")
     }
 
     // MARK: - Capture
@@ -192,3 +224,28 @@ private struct MockFinderWindow: View {
         .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
     }
 }
+/// The app icon: a six-slice wheel with one slice lit and a Shift arrow in the hub, on the
+/// standard macOS rounded-square plate (824 pt inside a 1024 pt canvas).
+private struct AppIconView: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 185, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.36, green: 0.42, blue: 0.98), Color(red: 0.55, green: 0.27, blue: 0.86)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 824, height: 824)
+                .shadow(color: .black.opacity(0.25), radius: 18, y: 10)
+            ForEach(0..<6, id: \.self) { index in
+                let start = Double(index) * .pi / 3 - .pi / 6 + 0.05
+                SectorShape(start: start, end: start + .pi / 3 - 0.1, inner: 150, outer: 330)
+                    .fill(index == 1 ? Color.white : Color.white.opacity(0.22))
+            }
+            .frame(width: 1024, height: 1024)
+            Circle().fill(Color.white.opacity(0.95)).frame(width: 236, height: 236)
+            Image(systemName: "shift.fill")
+                .font(.system(size: 130, weight: .bold))
+                .foregroundStyle(Color(red: 0.42, green: 0.36, blue: 0.95))
+        }
+        .frame(width: 1024, height: 1024)
+    }
+}
+#endif

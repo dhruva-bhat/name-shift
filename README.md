@@ -124,6 +124,11 @@ On first launch a setup window walks you through three permissions and checks th
 
 ## Preferences
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/preferences-dark.png">
+  <img alt="Preferences window with the trigger key, hold duration slider, haptic tick, tick sound and pause settings" src="docs/images/preferences-light.png" width="440">
+</picture>
+
 Menu bar → Preferences… to change:
 
 - **Trigger:** Shift, Option + Shift, or Fn / Globe. For Fn, set System Settings → Keyboard →
@@ -139,11 +144,16 @@ swift test                         # core logic tests, no UI or permissions need
 scripts/run.sh                     # build, sign, relaunch the app
 CONFIG=release scripts/build-app.sh
 scripts/render-readme-images.sh    # regenerate the images in this README
+scripts/make-app-icon.sh           # regenerate Resources/AppIcon.icns
 ```
 
-The images above are rendered from the app's real SwiftUI views by
-`NameShift --render-readme-images <dir>`. The Finder window behind the wheel is a drawn
-mock-up.
+The images above and the app icon are drawn from the app's real SwiftUI views by debug-only
+hooks (`--render-readme-images`, `--render-app-icon`), which aren't compiled into release
+builds. The Finder window behind the wheel is a drawn mock-up.
+
+CI (`.github/workflows/ci.yml`) builds, runs the tests and packages the app on every push to
+`main` and every pull request. The zipped app it uploads is ad-hoc signed and meant for testing
+only. Downloaded copies are blocked by Gatekeeper until there's a notarized release.
 
 | Path | Contents |
 |---|---|
