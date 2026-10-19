@@ -152,7 +152,7 @@ struct TrayView: View {
             }
 
             HStack {
-                Text("Space preview · ←→ select · ⌥←→ move · drag to reorder")
+                Text("Space preview · ←→ select · ⌥←→ or drag to move")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel  esc") { model.cancel() }
@@ -161,13 +161,13 @@ struct TrayView: View {
         }
         .padding(14)
         .frame(width: Self.width(for: model.items.count, previewing: model.isPreviewing))
-        .background(VisualEffectBackground())
+        .background(PanelBackground())
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
     }
 
     static func width(for count: Int, previewing: Bool) -> CGFloat {
-        min(max(CGFloat(count) * (itemWidth + spacing) + 28, previewing ? 600 : 460), 760)
+        min(max(CGFloat(count) * (itemWidth + spacing) + 28, previewing ? 600 : 540), 760)
     }
 
     /// Visual offset that keeps the dragged item under the pointer even after its slot changes.

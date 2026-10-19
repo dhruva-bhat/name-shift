@@ -62,6 +62,33 @@ struct VisualEffectBackground: NSViewRepresentable {
     }
 }
 
+/// Blurred panel background. Offscreen rendering (README images) can't capture a behind-window
+/// blur, so it falls back to a solid fill there.
+struct PanelBackground: View {
+    @Environment(\.snapshotRendering) private var snapshotRendering
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if snapshotRendering {
+            Rectangle().fill(colorScheme == .dark ? Color(white: 0.16) : Color(white: 0.97))
+        } else {
+            VisualEffectBackground()
+        }
+    }
+}
+
+private struct SnapshotRenderingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True while rendering README images offscreen.
+    var snapshotRendering: Bool {
+        get { self[SnapshotRenderingKey.self] }
+        set { self[SnapshotRenderingKey.self] = newValue }
+    }
+}
+
 /// Hosting view that handles the first click even when its (non-activating) window isn't key.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

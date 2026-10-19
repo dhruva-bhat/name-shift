@@ -4,6 +4,7 @@ import AppKit
 // when running the bare binary from `swift run`.
 MainActor.assumeIsolated {
     let app = NSApplication.shared
+    if ReadmeImages.renderIfRequested() { exit(0) }
     let delegate = AppDelegate()
     app.delegate = delegate
     app.setActivationPolicy(.accessory)

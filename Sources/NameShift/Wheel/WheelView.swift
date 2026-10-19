@@ -7,11 +7,17 @@ struct WheelView: View {
     static let innerRadius: CGFloat = 42  // also the cancel dead zone
 
     @ObservedObject var model: WheelViewModel
-    @State private var appeared = false
+    @State private var appeared: Bool
+
+    /// `animateIn: false` shows the wheel fully open immediately (used for README images).
+    init(model: WheelViewModel, animateIn: Bool = true) {
+        self.model = model
+        _appeared = State(initialValue: !animateIn)
+    }
 
     var body: some View {
         ZStack {
-            VisualEffectBackground()
+            PanelBackground()
                 .frame(width: Self.outerRadius * 2, height: Self.outerRadius * 2)
                 .clipShape(Circle())
                 .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))

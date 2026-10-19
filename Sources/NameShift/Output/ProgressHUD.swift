@@ -35,7 +35,7 @@ struct HUDView: View {
         }
         .padding(.horizontal, 14)
         .frame(width: 400, height: 62)
-        .background(VisualEffectBackground())
+        .background(PanelBackground())
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
     }

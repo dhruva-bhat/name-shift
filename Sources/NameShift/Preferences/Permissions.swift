@@ -53,11 +53,19 @@ enum PermissionStatus: Equatable {
 @MainActor
 final class PermissionCenter: ObservableObject {
     @Published private(set) var status: [Permission: PermissionStatus] = [:]
+    private let isFixed: Bool
+
+    /// `fixedStatus` pins the statuses and disables live checks (used for README images).
+    init(fixedStatus: [Permission: PermissionStatus]? = nil) {
+        status = fixedStatus ?? [:]
+        isFixed = fixedStatus != nil
+    }
 
     var missing: [Permission] { Permission.allCases.filter { status[$0] != .granted } }
     var allGranted: Bool { missing.isEmpty }
 
     func refresh() {
+        guard !isFixed else { return }
         status[.inputMonitoring] = CGPreflightListenEventAccess() ? .granted : .denied
         status[.accessibility] = AXIsProcessTrusted() ? .granted : .denied
         DispatchQueue.global(qos: .userInitiated).async {

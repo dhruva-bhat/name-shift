@@ -27,6 +27,7 @@ public enum ImageFormat: String, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .jpeg: return "JPG"
+        case .webp: return "WebP"
         default: return rawValue.uppercased()
         }
     }
