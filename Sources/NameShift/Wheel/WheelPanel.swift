@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Borderless, non-activating, click-through panel. Finder stays frontmost and key the whole
-/// time; the wheel tracks the pointer via the event tap, not via its own mouse events.
+/// Borderless, non-activating panel. Finder stays frontmost and key the whole time; the wheel
+/// tracks the pointer and clicks via the event tap. The panel still accepts mouse events so a
+/// click on the wheel lands here instead of passing through to Finder as a Shift-click.
 final class WheelPanel: NSPanel {
     static let diameter: CGFloat = 300
 
@@ -14,7 +15,7 @@ final class WheelPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        ignoresMouseEvents = true
+        ignoresMouseEvents = false
         hidesOnDeactivate = false
         animationBehavior = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]

@@ -51,7 +51,7 @@ import Testing
     @Test func shiftClickPoisons() {
         var m = machine()
         _ = m.handle(.modifiersChanged(.shift))
-        _ = m.handle(.mouseDown)
+        _ = m.handle(.mouseDown(onWheel: false))
         #expect(m.state == .poisoned)
         #expect(m.handle(.holdTimerFired(generation: 1)).isEmpty)
     }
@@ -84,9 +84,28 @@ import Testing
         #expect(m.handle(.modifiersChanged([])).isEmpty)  // release after Esc must not commit
     }
 
-    @Test func clickWhileOpenCancels() {
+    @Test func clickOutsideWheelCancels() {
         var m = opened()
-        #expect(m.handle(.mouseDown) == [.cancel(reason: "mouse click")])
+        #expect(m.handle(.mouseDown(onWheel: false)) == [.cancel(reason: "click outside the wheel")])
+    }
+
+    @Test func clickOnWheelCommitsOnce() {
+        var m = opened()
+        #expect(m.handle(.mouseDown(onWheel: true)) == [.commit])
+        #expect(m.state == .poisoned)
+        #expect(m.handle(.modifiersChanged([])).isEmpty)  // releasing Shift afterwards doesn't re-fire
+        #expect(m.state == .idle)
+    }
+
+    @Test func clickOnWheelPositionDuringHoldStillPoisons() {
+        var m = machine()
+        _ = m.handle(.modifiersChanged(.shift))
+        _ = m.handle(.mouseDown(onWheel: true))
+        #expect(m.state == .poisoned)
+    }
+
+    @Test func defaultHoldIs300ms() {
+        #expect(TriggerSettings().holdDuration == 0.3)
     }
 
     @Test func scrollWhileOpenIsIgnoredByMachine() {

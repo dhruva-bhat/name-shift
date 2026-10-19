@@ -60,7 +60,7 @@ public enum TriggerKey: String, CaseIterable, Codable, Sendable, Identifiable {
 
 public struct TriggerSettings: Equatable, Sendable {
     public static let holdRange: ClosedRange<TimeInterval> = 0.2...0.8
-    public static let defaultHold: TimeInterval = 0.45
+    public static let defaultHold: TimeInterval = 0.3
 
     public var key: TriggerKey
     public var holdDuration: TimeInterval {

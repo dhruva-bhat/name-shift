@@ -5,7 +5,8 @@ import Foundation
 public enum TriggerInput: Equatable, Sendable {
     case modifiersChanged(ModifierSet)
     case keyDown(keyCode: UInt16)
-    case mouseDown
+    /// `onWheel`: a primary click inside the open wheel's circle (fires the slice under it).
+    case mouseDown(onWheel: Bool)
     case scroll
     case holdTimerFired(generation: Int)
 }
@@ -16,7 +17,7 @@ public enum TriggerOutput: Equatable, Sendable {
     /// Hold elapsed cleanly. The app must now run the TriggerGate, then either show the
     /// wheel or call `dismissWheel()`.
     case holdElapsed
-    /// Trigger released while the wheel was open: fire the hovered slice.
+    /// Trigger released, or wheel clicked, while open: fire the hovered slice.
     case commit
     /// Wheel was open and got cancelled (Esc, other key, click, extra modifier).
     case cancel(reason: String)
@@ -31,7 +32,8 @@ public enum TriggerOutput: Equatable, Sendable {
 ///   reached that state by pressing only trigger keys (so Cmd+Shift → release Cmd never arms).
 /// - Any key press, click, or scroll during the hold poisons the gesture until every
 ///   modifier is released (Shift-click multi-select and typing capitals never open the wheel).
-/// - While open: releasing a trigger key commits; any other input cancels.
+/// - While open: releasing a trigger key or clicking on the wheel commits; any other
+///   input (Esc, typing, clicking outside the wheel) cancels.
 public struct HoldTriggerMachine: Sendable {
     public enum State: Equatable, Sendable {
         case idle
@@ -81,7 +83,7 @@ public struct HoldTriggerMachine: Sendable {
             state = .poisoned
             return [.cancelHoldTimer, .note("cancelled: key \(code) pressed during hold")]
 
-        case (.pending, .mouseDown):
+        case (.pending, .mouseDown):  // Shift-click multi-select
             state = .poisoned
             return [.cancelHoldTimer, .note("cancelled: mouse click during hold (Shift-click?)")]
 
@@ -108,9 +110,10 @@ public struct HoldTriggerMachine: Sendable {
             state = .poisoned
             return [.cancel(reason: code == Self.escapeKeyCode ? "Esc" : "key \(code) pressed")]
 
-        case (.open, .mouseDown):
+        case (.open, .mouseDown(let onWheel)):
+            // Poisoned either way, so the later Shift release doesn't fire a second time.
             state = .poisoned
-            return [.cancel(reason: "mouse click")]
+            return onWheel ? [.commit] : [.cancel(reason: "click outside the wheel")]
 
         case (.open, .scroll):
             return []  // scroll rotates the ring; handled by the wheel view model

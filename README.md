@@ -1,6 +1,6 @@
 # Name Shift (Phase 1)
 
-Select files in Finder, hold Shift ~450 ms, flick toward a slice, release Shift.
+Select files in Finder, hold Shift ~300 ms, flick toward a slice, then release Shift or click it.
 
 ```
 swift test                 # core logic tests (no UI, no permissions needed)

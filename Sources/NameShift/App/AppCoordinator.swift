@@ -76,6 +76,14 @@ final class AppCoordinator {
         switch event {
         case .trigger(let input):
             feed(input)
+        case .mouseDown(let primary):
+            var onWheel = false
+            if isWheelOpen {
+                updateHover()  // target the slice under the click, not the last mouse-move sample
+                let p = NSEvent.mouseLocation
+                onWheel = primary && hypot(p.x - wheelCenter.x, p.y - wheelCenter.y) <= WheelView.outerRadius
+            }
+            feed(.mouseDown(onWheel: onWheel))
         case .mouseMoved:
             if isWheelOpen { updateHover() }
         case .scroll(let delta, let precise):
@@ -161,7 +169,7 @@ final class AppCoordinator {
                 log.info("released on disabled “\(hovered.title)”: \(hovered.detail ?? "")")
                 hud.showInfo(hovered.detail ?? "Not available for this selection", title: hovered.title)
             } else {
-                log.info("released in center → cancelled")
+                log.info("released/clicked in center → cancelled")
             }
             return
         }

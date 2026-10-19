@@ -6,6 +6,8 @@ import NameShiftCore
 final class ModifierMonitor {
     enum Event {
         case trigger(TriggerInput)
+        /// Any mouse button down; `primary` = left button.
+        case mouseDown(primary: Bool)
         case mouseMoved
         case scroll(delta: Double, precise: Bool)
         /// The system disabled the tap (timeout/user input) and we re-enabled it; we may have
@@ -57,7 +59,7 @@ final class ModifierMonitor {
             let code = UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode))
             handler?(.trigger(.keyDown(keyCode: code)))
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            handler?(.trigger(.mouseDown))
+            handler?(.mouseDown(primary: type == .leftMouseDown))
         case .scrollWheel:
             let precise = event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0
             let field1: CGEventField = precise ? .scrollWheelEventPointDeltaAxis1 : .scrollWheelEventDeltaAxis1

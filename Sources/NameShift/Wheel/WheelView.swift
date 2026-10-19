@@ -44,7 +44,7 @@ struct WheelView: View {
             VStack(spacing: 2) {
                 Text(hovered?.title ?? model.summary)
                     .font(.system(size: 10.5, weight: .semibold))
-                Text(hovered.map { $0.isEnabled ? "release to run" : ($0.detail ?? "unavailable") } ?? "release to cancel")
+                Text(hovered.map { $0.isEnabled ? "release or click to run" : ($0.detail ?? "unavailable") } ?? "release to cancel")
                     .font(.system(size: 8.5))
                     .foregroundStyle(.secondary)
             }
