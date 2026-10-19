@@ -2,7 +2,7 @@
 
 All notable changes to Name Shift. Versions follow [Semantic Versioning](https://semver.org).
 
-## [Unreleased]: 0.1.0
+## [0.1.0] - 2026-10-18
 
 First version: the hold-Shift radial wheel for Finder.
 

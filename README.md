@@ -172,3 +172,7 @@ the Mac App Store. It's meant for Developer ID distribution.
   wheel editor.
 - **Later:** selections from other apps (Mail attachments, downloads), Shortcuts, automatic
   updates.
+
+## License
+
+[MIT](LICENSE)
