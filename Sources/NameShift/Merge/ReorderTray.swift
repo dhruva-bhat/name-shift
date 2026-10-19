@@ -10,7 +10,7 @@ import SwiftUI
 final class TrayModel: ObservableObject {
     struct Item: Identifiable {
         let id = UUID()
-        let file: FileDescriptor
+        var file: FileDescriptor
         var thumbnail: NSImage?
     }
 
@@ -64,8 +64,15 @@ final class TrayModel: ObservableObject {
         items = MergeOrdering.move(items, from: from, to: to)
     }
 
+    /// Thumbnails and page counts load off the main thread (the wheel only had file types).
     func loadThumbnails(scale: CGFloat) {
         for item in items {
+            let url = item.file.url
+            Task { [weak self] in
+                let probed = await Task.detached(priority: .userInitiated) { FileDescriptor.probe(url) }.value
+                guard let self, let i = self.items.firstIndex(where: { $0.id == item.id }) else { return }
+                self.items[i].file = probed
+            }
             let request = QLThumbnailGenerator.Request(fileAt: item.file.url, size: CGSize(width: 72, height: 72),
                                                        scale: scale, representationTypes: .all)
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] rep, _ in
@@ -269,13 +276,18 @@ final class ReorderTrayController {
     private let panel = TrayPanel()
     private var keyMonitor: Any?
     private var previewSubscription: AnyObject?
+    private var activeModel: TrayModel?
 
-    /// Calls `completion` with the confirmed order, or nil if cancelled.
+    /// Calls `completion` with the confirmed order, or nil if cancelled. If a tray is already
+    /// open, it is cancelled first (its completion gets nil) so nothing is dropped or leaked.
     func present(files: [FileDescriptor], near point: NSPoint, completion: @escaping ([FileDescriptor]?) -> Void) {
+        activeModel?.cancel()
         let previousApp = NSWorkspace.shared.frontmostApplication
         let model = TrayModel(files: files)
+        activeModel = model
         model.onFinish = { [weak self] result in
             guard let self else { return }
+            self.activeModel = nil
             if let keyMonitor = self.keyMonitor { NSEvent.removeMonitor(keyMonitor) }
             self.keyMonitor = nil
             self.previewSubscription = nil
@@ -290,7 +302,7 @@ final class ReorderTrayController {
         host.sizingOptions = [.preferredContentSize]
         panel.contentViewController = host
         let size = host.view.fittingSize
-        let screen = (NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main)
+        let screen = NSScreen.containing(point)
         panel.setFrame(NSRect(origin: NSPoint(x: point.x - size.width / 2, y: point.y + 24), size: size), display: true)
         keepOnScreen(screen)
         panel.makeKeyAndOrderFront(nil)
@@ -322,9 +334,6 @@ final class ReorderTrayController {
 
     private func keepOnScreen(_ screen: NSScreen?) {
         guard let vf = screen?.visibleFrame else { return }
-        var frame = panel.frame
-        frame.origin.x = min(max(frame.origin.x, vf.minX + 8), vf.maxX - frame.width - 8)
-        frame.origin.y = min(max(frame.origin.y, vf.minY + 8), vf.maxY - frame.height - 8)
-        panel.setFrame(frame, display: true)
+        panel.setFrame(panel.frame.clamped(to: vf, margin: 8), display: true)
     }
 }

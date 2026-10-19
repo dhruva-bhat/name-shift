@@ -26,9 +26,10 @@ final class AppCoordinator {
     private var holdTimer: DispatchWorkItem?
 
     private let tray = ReorderTrayController()
-    private lazy var hud = ProgressHUDController(onUndo: { [weak self] in self?.undoLast() },
+    private lazy var hud = ProgressHUDController(onUndo: { [weak self] jobID in self?.undo(jobID: jobID) },
                                                  onCancel: { [weak self] job in self?.jobs.cancel(job) })
     private var subscriptions: Set<AnyCancellable> = []
+    private var loggedTapFailure = false  // startMonitorIfPossible is polled; log a failure once
 
     var isMonitoring: Bool { monitor.isInstalled }
 
@@ -62,8 +63,10 @@ final class AppCoordinator {
     func startMonitorIfPossible() {
         guard !monitor.isInstalled else { return }
         if monitor.start() {
+            loggedTapFailure = false
             log.info("event tap installed (listen-only); trigger = \(settings.triggerKey.displayName), hold = \(Int(settings.holdMilliseconds)) ms")
-        } else if CGPreflightListenEventAccess() {
+        } else if CGPreflightListenEventAccess(), !loggedTapFailure {
+            loggedTapFailure = true
             log.fail("event tap creation failed even though Input Monitoring looks granted — try relaunching")
         }
     }
@@ -86,6 +89,8 @@ final class AppCoordinator {
             feed(.mouseDown(onWheel: onWheel))
         case .mouseMoved:
             if isWheelOpen { updateHover() }
+        case .mouseDragged:
+            feed(.mouseDragged)
         case .scroll(let delta, let precise):
             feed(.scroll)
             if isWheelOpen, wheelModel.scrolled(delta: delta, precise: precise) { tick() }
@@ -138,7 +143,7 @@ final class AppCoordinator {
             machine.dismissWheel()
             log.fail("gate rejected: \(failure) [\(ms) ms]")
         case .open(let urls):
-            let files = urls.map(FileDescriptor.probe)
+            let files = urls.map(FileDescriptor.basic)  // type only; deeper probes happen off the hot path
             wheelFiles = files
             wheelModel.reset(slices: registry.slices(for: files), summary: files.summary,
                              deadZoneRadius: WheelView.innerRadius)
@@ -213,14 +218,21 @@ final class AppCoordinator {
         }
     }
 
+    /// Menu-bar Undo: the most recent job.
     func undoLast() {
-        guard let entry = undo.last else { return }
+        if let last = undo.last { undo(jobID: last.id) }
+    }
+
+    /// HUD Undo: the specific job that HUD is showing.
+    func undo(jobID: UUID) {
+        guard let entry = undo.entries.first(where: { $0.id == jobID }) else { return }
         do {
-            let trashed = try undo.undoLast()
+            let trashed = try undo.undo(id: jobID)
             log.info("undo: moved \(trashed.count) file(s) from “\(entry.title)” to Trash")
             hud.showInfo("Moved \(trashed.count) file\(trashed.count == 1 ? "" : "s") to the Trash", title: "Undo")
         } catch {
-            hud.showInfo("Undo failed: \(error.localizedDescription)", title: "Undo")
+            log.fail("undo failed for “\(entry.title)”: \(error.localizedDescription)")
+            hud.showInfo("Undo failed: \(error.localizedDescription). The rest can be retried.", title: "Undo")
         }
     }
 }

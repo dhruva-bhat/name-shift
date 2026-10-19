@@ -85,7 +85,9 @@ final class ProgressHUDController {
 
     private let onCancelJob: (Job) -> Void
 
-    init(onUndo: @escaping () -> Void, onCancel: @escaping (Job) -> Void) {
+    private var trackedJobID: UUID?
+
+    init(onUndo: @escaping (UUID) -> Void, onCancel: @escaping (Job) -> Void) {
         onCancelJob = onCancel
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 62),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -102,14 +104,16 @@ final class ProgressHUDController {
             self?.hide()
         }
         model.onUndo = { [weak self] in
-            onUndo()
-            self?.scheduleHide(after: 2.5)
+            guard let self, let id = self.trackedJobID else { return }
+            onUndo(id)  // undo this HUD's job, not whichever job finished last
+            self.scheduleHide(after: 2.5)
         }
     }
 
     func track(_ job: Job) {
         subscriptions.removeAll()
         hideWork?.cancel()
+        trackedJobID = job.id
         model.title = job.title
         model.progress = job.progress
         model.phase = .running
@@ -132,8 +136,14 @@ final class ProgressHUDController {
         case .queued, .running:
             model.phase = .running
         case .succeeded(let result):
-            let note = result.failures.isEmpty ? nil
-                : "\(result.outputs.count) done, \(result.failures.count) failed: \(result.failures[0].message)"
+            let note: String?
+            if result.wasCancelled {
+                note = "Cancelled · kept \(result.outputs.count) finished file\(result.outputs.count == 1 ? "" : "s")"
+            } else if let failure = result.failures.first {
+                note = "\(result.outputs.count) done, \(result.failures.count) failed: \(failure.message)"
+            } else {
+                note = nil
+            }
             model.phase = .done(outputs: result.outputs, note: note)
             scheduleHide(after: 5)
         case .failed(let message):
@@ -147,7 +157,7 @@ final class ProgressHUDController {
 
     private func show() {
         let mouse = NSEvent.mouseLocation
-        if let vf = (NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main)?.visibleFrame {
+        if let vf = NSScreen.containing(mouse)?.visibleFrame {
             panel.setFrameOrigin(NSPoint(x: vf.midX - panel.frame.width / 2, y: vf.minY + 48))
         }
         panel.orderFrontRegardless()

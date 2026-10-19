@@ -6,6 +6,8 @@ public protocol TriggerEnvironment {
     var isAccessibilityTrusted: Bool { get }
     /// True when some app (e.g. a password field) has enabled Secure Event Input.
     var isSecureInputEnabled: Bool { get }
+    /// True while any mouse button is down (e.g. mid-drag in Finder).
+    var isMouseButtonDown: Bool { get }
     /// AX role/subrole of the focused element inside the frontmost app, or nil if unknown.
     func focusedElementRole() -> (role: String?, subrole: String?)?
     /// Expensive (Apple Event round trip). Only called if every cheaper check passed.
@@ -16,6 +18,7 @@ public enum GateFailure: Equatable, Sendable, CustomStringConvertible {
     case paused
     case frontmostNotFinder(String?)
     case secureInput
+    case mouseButtonHeld
     case accessibilityMissing
     case textEditing(role: String)
     case selectionUnavailable(String)
@@ -26,6 +29,7 @@ public enum GateFailure: Equatable, Sendable, CustomStringConvertible {
         case .paused: return "paused"
         case .frontmostNotFinder(let id): return "frontmost app is \(id ?? "unknown"), not Finder"
         case .secureInput: return "secure input is active"
+        case .mouseButtonHeld: return "a mouse button is held (dragging)"
         case .accessibilityMissing: return "Accessibility permission missing (can't check text focus)"
         case .textEditing(let role): return "text editing in Finder (\(role))"
         case .selectionUnavailable(let why): return "couldn't read Finder selection: \(why)"
@@ -55,6 +59,7 @@ public struct TriggerGate: Sendable {
         guard front == Self.finderBundleID else { return .rejected(.frontmostNotFinder(front)) }
 
         if env.isSecureInputEnabled { return .rejected(.secureInput) }
+        if env.isMouseButtonDown { return .rejected(.mouseButtonHeld) }
         guard env.isAccessibilityTrusted else { return .rejected(.accessibilityMissing) }
 
         if let focus = env.focusedElementRole(),

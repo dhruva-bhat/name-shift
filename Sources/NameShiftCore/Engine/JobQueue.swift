@@ -10,10 +10,13 @@ public struct ActionResult: Sendable, Equatable {
 
     public var outputs: [URL]
     public var failures: [Failure]
+    /// Stopped early by cancellation; `outputs` holds what was written before that.
+    public var wasCancelled: Bool
 
-    public init(outputs: [URL], failures: [Failure] = []) {
+    public init(outputs: [URL], failures: [Failure] = [], wasCancelled: Bool = false) {
         self.outputs = outputs
         self.failures = failures
+        self.wasCancelled = wasCancelled
     }
 }
 
@@ -88,25 +91,27 @@ public final class JobQueue: ObservableObject {
     private func start(_ job: Job) {
         job.state = .running
         let work = job.work
-        job.task = Task.detached(priority: .userInitiated) { [weak self] in
+        // Built on the main actor so the detached task never touches `self` directly.
+        let finish: @MainActor (Job.State) -> Void = { [weak self] state in
+            job.state = state
+            if case .succeeded = state { job.progress = 1 }
+            self?.onFinished?(job)
+            self?.pump()
+        }
+        job.task = Task.detached(priority: .userInitiated) {
             let progress: @Sendable (Double) -> Void = { value in
                 Task { @MainActor in if job.state == .running { job.progress = value } }
             }
             let state: Job.State
             do {
-                let result = try await work(progress)
-                state = Task.isCancelled ? .cancelled : .succeeded(result)
-            } catch is CancellationError {
+                // Even if cancelled meanwhile, files were written: report them so Undo can find them.
+                state = .succeeded(try await work(progress))
+            } catch is CancellationError {  // stopped before writing anything
                 state = .cancelled
             } catch {
                 state = .failed(String(describing: error))
             }
-            await MainActor.run {
-                job.state = state
-                if case .succeeded = state { job.progress = 1 }
-                self?.onFinished?(job)
-                self?.pump()
-            }
+            await finish(state)
         }
     }
 }

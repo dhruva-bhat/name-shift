@@ -7,6 +7,8 @@ public enum TriggerInput: Equatable, Sendable {
     case keyDown(keyCode: UInt16)
     /// `onWheel`: a primary click inside the open wheel's circle (fires the slice under it).
     case mouseDown(onWheel: Bool)
+    /// Pointer moved with a button held (marquee selection, file drag).
+    case mouseDragged
     case scroll
     case holdTimerFired(generation: Int)
 }
@@ -87,6 +89,10 @@ public struct HoldTriggerMachine: Sendable {
             state = .poisoned
             return [.cancelHoldTimer, .note("cancelled: mouse click during hold (Shift-click?)")]
 
+        case (.pending, .mouseDragged):
+            state = .poisoned
+            return [.cancelHoldTimer, .note("cancelled: mouse drag during hold")]
+
         case (.pending, .scroll):
             state = .poisoned
             return [.cancelHoldTimer, .note("cancelled: scroll during hold")]
@@ -114,6 +120,10 @@ public struct HoldTriggerMachine: Sendable {
             // Poisoned either way, so the later Shift release doesn't fire a second time.
             state = .poisoned
             return onWheel ? [.commit] : [.cancel(reason: "click outside the wheel")]
+
+        case (.open, .mouseDragged):
+            state = .poisoned
+            return [.cancel(reason: "mouse drag")]
 
         case (.open, .scroll):
             return []  // scroll rotates the ring; handled by the wheel view model

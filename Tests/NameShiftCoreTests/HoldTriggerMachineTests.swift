@@ -56,6 +56,20 @@ import Testing
         #expect(m.handle(.holdTimerFired(generation: 1)).isEmpty)
     }
 
+    @Test func dragDuringHoldPoisons() {
+        var m = machine()
+        _ = m.handle(.modifiersChanged(.shift))  // Shift pressed mid-marquee-drag
+        #expect(m.handle(.mouseDragged).contains(.cancelHoldTimer))
+        #expect(m.handle(.holdTimerFired(generation: 1)).isEmpty)
+        #expect(m.handle(.modifiersChanged([])).isEmpty)  // release never commits
+    }
+
+    @Test func dragWhileOpenCancels() {
+        var m = opened()
+        #expect(m.handle(.mouseDragged) == [.cancel(reason: "mouse drag")])
+        #expect(m.handle(.modifiersChanged([])).isEmpty)
+    }
+
     @Test func scrollDuringHoldPoisons() {
         var m = machine()
         _ = m.handle(.modifiersChanged(.shift))

@@ -2,13 +2,16 @@ import Foundation
 import NameShiftCore
 
 /// Reads Finder's selection (windows or Desktop) with one Apple Event (`selection as alias list`).
-/// NSAppleScript is main-thread only; the script is compiled once and reused.
+/// NSAppleScript is main-thread only; the script is compiled once and reused. The timeout keeps a
+/// busy or hung Finder from blocking the main thread (and the event tap) for the default ~2 minutes.
 final class FinderSelectionProvider: SelectionProvider {
     /// Finder doesn't expose the order items were clicked, so merges default to natural sort.
     static let selectionOrderIsMeaningful = false
 
     private static let source = """
-    tell application id "com.apple.finder" to set theSelection to (get selection as alias list)
+    with timeout of 2 seconds
+        tell application id "com.apple.finder" to set theSelection to (get selection as alias list)
+    end timeout
     set thePaths to {}
     repeat with anItem in theSelection
         set end of thePaths to POSIX path of anItem

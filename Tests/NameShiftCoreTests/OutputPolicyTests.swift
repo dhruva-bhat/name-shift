@@ -37,6 +37,27 @@ import Testing
         #expect(try String(contentsOf: out1, encoding: .utf8) == "new1")
     }
 
+    @Test func fallsBackWhenExclusiveRenameUnsupported() throws {
+        let tmp = try TempDir()
+        let existing = tmp.url.appendingPathComponent("a.png")
+        try Data("original".utf8).write(to: existing)
+        // Simulate an exFAT/SMB volume where renamex_np(RENAME_EXCL) returns ENOTSUP.
+        let out = try OutputPolicy.write(in: tmp.url, baseName: "a", ext: "png",
+                                         exclusiveRename: { _, _ in ENOTSUP }) { try Data("new".utf8).write(to: $0) }
+        #expect(out.lastPathComponent == "a 2.png")
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "original")
+        #expect(try String(contentsOf: out, encoding: .utf8) == "new")
+    }
+
+    @Test func failedWriteLeavesNoFilesBehind() throws {
+        let tmp = try TempDir()
+        #expect(throws: OutputError.self) {
+            try OutputPolicy.write(in: tmp.url, baseName: "a", ext: "png",
+                                   exclusiveRename: { _, _ in EACCES }) { try Data("x".utf8).write(to: $0) }
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: tmp.url.path).isEmpty)
+    }
+
     @Test func writeFailsWhenBodyProducesNothing() throws {
         let tmp = try TempDir()
         #expect(throws: OutputError.self) {

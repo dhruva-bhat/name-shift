@@ -9,6 +9,8 @@ final class ModifierMonitor {
         /// Any mouse button down; `primary` = left button.
         case mouseDown(primary: Bool)
         case mouseMoved
+        /// Pointer moved with a button held (marquee selection, file drag).
+        case mouseDragged
         case scroll(delta: Double, precise: Bool)
         /// The system disabled the tap (timeout/user input) and we re-enabled it; we may have
         /// missed flag changes, so the machine must resync from the live modifier state.
@@ -25,7 +27,8 @@ final class ModifierMonitor {
     func start() -> Bool {
         guard tap == nil else { return true }
         let types: [CGEventType] = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
-                                    .scrollWheel, .mouseMoved, .leftMouseDragged, .rightMouseDragged]
+                                    .scrollWheel, .mouseMoved, .leftMouseDragged, .rightMouseDragged,
+                                    .otherMouseDragged]
         let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << CGEventMask($1.rawValue)) }
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
                                           options: .listenOnly, eventsOfInterest: mask,
@@ -69,8 +72,10 @@ final class ModifierMonitor {
             let dx = event.getDoubleValueField(field2)
             let delta = abs(dy) >= abs(dx) ? -dy : dx
             handler?(.scroll(delta: delta, precise: precise))
-        case .mouseMoved, .leftMouseDragged, .rightMouseDragged:
+        case .mouseMoved:
             handler?(.mouseMoved)
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            handler?(.mouseDragged)
         default:
             break
         }

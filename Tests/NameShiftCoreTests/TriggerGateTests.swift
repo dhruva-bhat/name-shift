@@ -6,6 +6,7 @@ final class FakeEnvironment: TriggerEnvironment {
     var frontmostBundleID: String? = TriggerGate.finderBundleID
     var isAccessibilityTrusted = true
     var isSecureInputEnabled = false
+    var isMouseButtonDown = false
     var focus: (role: String?, subrole: String?)? = ("AXOutline", nil)
     var selection: Result<[URL], Error> = .success([URL(fileURLWithPath: "/tmp/a.png")])
     private(set) var selectionFetches = 0
@@ -42,6 +43,13 @@ final class FakeEnvironment: TriggerEnvironment {
         let env = FakeEnvironment()
         env.isSecureInputEnabled = true
         #expect(gate.evaluate(env, paused: false) == .rejected(.secureInput))
+    }
+
+    @Test func heldMouseButtonRejectsWithoutAppleEvent() {
+        let env = FakeEnvironment()
+        env.isMouseButtonDown = true  // e.g. Shift pressed mid-drag with the pointer still
+        #expect(gate.evaluate(env, paused: false) == .rejected(.mouseButtonHeld))
+        #expect(env.selectionFetches == 0)
     }
 
     @Test func missingAccessibilityRejects() {

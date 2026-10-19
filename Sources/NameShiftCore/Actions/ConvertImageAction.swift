@@ -31,7 +31,11 @@ public struct ConvertImageAction: FileAction {
         let todo = targets(in: files)
         var result = ActionResult(outputs: [])
         for (i, file) in todo.enumerated() {
-            try Task.checkCancellation()
+            if Task.isCancelled {
+                guard !result.outputs.isEmpty else { throw CancellationError() }
+                result.wasCancelled = true
+                break
+            }
             do {
                 result.outputs.append(try ImageConverter.convert(file.url, to: format, writableTypes: writableTypes))
             } catch {

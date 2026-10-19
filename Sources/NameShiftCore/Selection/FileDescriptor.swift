@@ -43,11 +43,16 @@ public struct FileDescriptor: Hashable, Sendable {
         return .other
     }
 
-    /// Reads the type from the file system and does a header-only probe for images and PDFs.
-    public static func probe(_ url: URL) -> FileDescriptor {
+    /// Type and size only (one stat). Enough for slice applicability; used before the wheel opens.
+    public static func basic(_ url: URL) -> FileDescriptor {
         let values = try? url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey])
         let type = values?.contentType ?? UTType(filenameExtension: url.pathExtension)
-        var d = FileDescriptor(url: url, contentType: type, byteSize: values?.fileSize.map(Int64.init))
+        return FileDescriptor(url: url, contentType: type, byteSize: values?.fileSize.map(Int64.init))
+    }
+
+    /// `basic` plus a header-only probe for images (pixel size) and PDFs (page count).
+    public static func probe(_ url: URL) -> FileDescriptor {
+        var d = basic(url)
         switch d.kind {
         case .image:
             if let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),

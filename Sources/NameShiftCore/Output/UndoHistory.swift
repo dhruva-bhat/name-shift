@@ -26,15 +26,42 @@ public final class UndoHistory: ObservableObject {
         if entries.count > capacity { entries.removeFirst() }
     }
 
-    /// Returns the URLs that were moved to the Trash.
+    public typealias Trash = @Sendable (URL) throws -> Void
+    public nonisolated static let systemTrash: Trash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+
+    /// Undo the most recent job. Returns the URLs that were moved to the Trash.
     @discardableResult
-    public func undoLast(fileManager: FileManager = .default) throws -> [URL] {
-        guard let entry = entries.popLast() else { return [] }
+    public func undoLast(fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+                         trash: Trash = UndoHistory.systemTrash) throws -> [URL] {
+        guard let last = entries.last else { return [] }
+        return try undo(id: last.id, fileExists: fileExists, trash: trash)
+    }
+
+    /// Undo a specific job (e.g. the one the HUD is showing). If some files can't be trashed,
+    /// the entry stays with just those files so Undo can be retried, and the first error is thrown.
+    @discardableResult
+    public func undo(id: UUID, fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+                     trash: Trash = UndoHistory.systemTrash) throws -> [URL] {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return [] }
+        let entry = entries[index]
         var trashed: [URL] = []
-        for url in entry.outputs where fileManager.fileExists(atPath: url.path) {
-            try fileManager.trashItem(at: url, resultingItemURL: nil)
-            trashed.append(url)
+        var remaining: [URL] = []
+        var firstError: Error?
+        for url in entry.outputs where fileExists(url) {
+            do {
+                try trash(url)
+                trashed.append(url)
+            } catch {
+                remaining.append(url)
+                firstError = firstError ?? error
+            }
         }
+        if remaining.isEmpty {
+            entries.remove(at: index)
+        } else {
+            entries[index] = Entry(id: entry.id, title: entry.title, outputs: remaining)
+        }
+        if let firstError { throw firstError }
         return trashed
     }
 }

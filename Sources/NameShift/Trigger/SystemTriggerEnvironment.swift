@@ -10,6 +10,7 @@ struct SystemTriggerEnvironment: TriggerEnvironment {
     var frontmostBundleID: String? { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
     var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
     var isSecureInputEnabled: Bool { IsSecureEventInputEnabled() }
+    var isMouseButtonDown: Bool { NSEvent.pressedMouseButtons != 0 }
 
     /// Role of the focused element in the frontmost app (e.g. AXTextField while renaming a file).
     func focusedElementRole() -> (role: String?, subrole: String?)? {

@@ -39,9 +39,16 @@ public enum OutputPolicy {
         return directory.appendingPathComponent(candidateName(baseName: baseName, ext: ext, attempt: maxAttempts + 1))
     }
 
+    /// Atomic "move unless the destination exists". Returns 0 or an errno value.
+    public typealias ExclusiveRename = (_ from: URL, _ to: URL) -> Int32
+    public static let systemExclusiveRename: ExclusiveRename = { from, to in
+        renamex_np(from.path, to.path, UInt32(RENAME_EXCL)) == 0 ? 0 : errno
+    }
+
     /// Produce a file via `body(tempURL)` and move it to the first free name in `directory`.
     @discardableResult
     public static func write(in directory: URL, baseName: String, ext: String,
+                             exclusiveRename: ExclusiveRename = systemExclusiveRename,
                              _ body: (URL) throws -> Void) throws -> URL {
         let fm = FileManager.default
         let tempDir = (try? fm.url(for: .itemReplacementDirectory, in: .userDomainMask,
@@ -51,14 +58,21 @@ public enum OutputPolicy {
         defer { try? fm.removeItem(at: tempDir) }
 
         var temp = tempDir.appendingPathComponent(UUID().uuidString + (ext.isEmpty ? "" : ".\(ext)"))
+        var placed = false
+        // Also removes a copy staged in the destination folder if we bail out.
+        defer { if !placed { try? fm.removeItem(at: temp) } }
+
         try body(temp)
         guard fm.fileExists(atPath: temp.path) else { throw OutputError.writeFailed("No output was produced") }
 
         var attempt = 1
         while attempt <= maxAttempts {
             let dest = directory.appendingPathComponent(candidateName(baseName: baseName, ext: ext, attempt: attempt))
-            if renamex_np(temp.path, dest.path, UInt32(RENAME_EXCL)) == 0 { return dest }
-            switch errno {
+            let error = exclusiveRename(temp, dest)
+            switch error {
+            case 0:
+                placed = true
+                return dest
             case EEXIST:
                 attempt += 1
             case EXDEV:
@@ -67,13 +81,24 @@ public enum OutputPolicy {
                 do { try fm.copyItem(at: temp, to: staged) } catch { throw OutputError.notWritable(directory) }
                 try? fm.removeItem(at: temp)
                 temp = staged
+            case ENOTSUP, EINVAL, ENOSYS:
+                // Volume can't do an exclusive rename (some SMB shares, FAT/exFAT). moveItem refuses
+                // to replace an existing file, so it still never overwrites; only the race narrows.
+                if fm.fileExists(atPath: dest.path) { attempt += 1; continue }
+                do {
+                    try fm.moveItem(at: temp, to: dest)
+                    placed = true
+                    return dest
+                } catch {
+                    if fm.fileExists(atPath: dest.path) { attempt += 1; continue }
+                    throw OutputError.writeFailed(error.localizedDescription)
+                }
             case EACCES, EPERM, EROFS:
                 throw OutputError.notWritable(directory)
             default:
-                throw OutputError.writeFailed(String(cString: strerror(errno)))
+                throw OutputError.writeFailed(String(cString: strerror(error)))
             }
         }
-        if temp.path.hasPrefix(directory.path) { try? fm.removeItem(at: temp) }
         throw OutputError.tooManyCollisions(directory.appendingPathComponent(baseName))
     }
 }

@@ -30,7 +30,7 @@ final class WheelPanel: NSPanel {
         contentView = NSHostingView(rootView: rootView)  // fresh view so the appear animation replays
         let r = Self.diameter / 2
         var center = point
-        if let frame = (NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main)?.frame {
+        if let frame = NSScreen.containing(point)?.frame {
             center.x = min(max(center.x, frame.minX + r), frame.maxX - r)
             center.y = min(max(center.y, frame.minY + r), frame.maxY - r)
         }
