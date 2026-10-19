@@ -1,10 +1,11 @@
 import AppKit
-import QuickLookThumbnailing
 import NameShiftCore
+import Quartz
+import QuickLookThumbnailing
 import SwiftUI
 
-/// Countdown + order state for the merge tray. Auto-confirms after `duration` unless the user
-/// starts dragging, which pauses it until Return / the Merge button.
+/// Order, selection, preview and countdown state for the merge tray. Auto-confirms after
+/// `duration` unless the user interacts (any key, click, or drag), which pauses it until Return.
 @MainActor
 final class TrayModel: ObservableObject {
     struct Item: Identifiable {
@@ -14,6 +15,8 @@ final class TrayModel: ObservableObject {
     }
 
     @Published var items: [Item]
+    @Published var selectedID: UUID?
+    @Published private(set) var isPreviewing = false
     @Published private(set) var remaining: Double
     @Published private(set) var isPaused = false
     let duration: Double
@@ -21,10 +24,15 @@ final class TrayModel: ObservableObject {
     private var timer: Timer?
 
     init(files: [FileDescriptor], duration: Double = 2.0) {
-        items = files.map { Item(file: $0) }
+        let items = files.map { Item(file: $0) }
+        self.items = items
+        selectedID = items.first?.id
         self.duration = duration
         remaining = duration
     }
+
+    var selectedIndex: Int? { items.firstIndex { $0.id == selectedID } }
+    var selectedItem: Item? { selectedIndex.map { items[$0] } }
 
     func start() {
         let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
@@ -43,6 +51,30 @@ final class TrayModel: ObservableObject {
     func pause() { isPaused = true }
     func confirm() { finish(items.map(\.file)) }
     func cancel() { finish(nil) }
+
+    func togglePreview() {
+        pause()
+        isPreviewing.toggle()
+    }
+
+    func select(_ id: UUID) {
+        pause()
+        selectedID = id
+    }
+
+    /// Arrow keys: move the selection (the preview follows it).
+    func selectNeighbor(_ offset: Int) {
+        pause()
+        guard let i = selectedIndex else { selectedID = items.first?.id; return }
+        selectedID = items[min(max(i + offset, 0), items.count - 1)].id
+    }
+
+    /// Option-arrow keys: move the selected file within the merge order.
+    func moveSelected(by offset: Int) {
+        guard let id = selectedID else { return }
+        pause()
+        move(id, by: offset)
+    }
 
     /// Returns how many positions the item actually moved (clamped at the ends).
     @discardableResult
@@ -91,52 +123,73 @@ struct TrayView: View {
             HStack {
                 Text("Merge \(model.items.count) files → PDF").font(.headline)
                 Spacer()
-                Text(model.isPaused ? "Return to merge · Esc to cancel"
-                                    : "Merging in \(String(format: "%.1f", max(model.remaining, 0)))s · drag to reorder")
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Self.spacing) {
-                    ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
-                        let dragging = draggingID == item.id
-                        TrayItemView(item: item, position: index + 1)
-                            .offset(x: dragging ? dragOffset : 0)
-                            .scaleEffect(dragging ? 1.06 : 1)
-                            .zIndex(dragging ? 1 : 0)
-                            .gesture(drag(item))
-                    }
+                if !model.isPaused {
+                    Text("Merging in \(String(format: "%.1f", max(model.remaining, 0)))s · press any key to check")
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }
-                .padding(.vertical, 4)
-                .animation(.spring(response: 0.22, dampingFraction: 0.85), value: model.items.map(\.id))
             }
 
-            ProgressView(value: model.isPaused ? 0 : max(model.remaining, 0) / model.duration)
-                .progressViewStyle(.linear)
-                .opacity(model.isPaused ? 0 : 1)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Self.spacing) {
+                        ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
+                            let dragging = draggingID == item.id
+                            TrayItemView(item: item, position: index + 1, selected: item.id == model.selectedID)
+                                .id(item.id)
+                                .offset(x: dragging ? dragOffset : 0)
+                                .scaleEffect(dragging ? 1.06 : 1)
+                                .zIndex(dragging ? 1 : 0)
+                                .onTapGesture(count: 2) { model.select(item.id); if !model.isPreviewing { model.togglePreview() } }
+                                .onTapGesture { model.select(item.id) }
+                                .gesture(drag(item))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .animation(.spring(response: 0.22, dampingFraction: 0.85), value: model.items.map(\.id))
+                }
+                .onChange(of: model.selectedID) { _, id in
+                    if let id { withAnimation { proxy.scrollTo(id) } }
+                }
+            }
+
+            if model.isPreviewing, let item = model.selectedItem, let index = model.selectedIndex {
+                VStack(spacing: 6) {
+                    QuickLookPreview(url: item.file.url)
+                        .frame(height: 440)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text("\(index + 1) of \(model.items.count) · \(item.file.url.lastPathComponent)"
+                         + (item.file.pageCount.map { " · \($0) page\($0 == 1 ? "" : "s")" } ?? ""))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+            } else {
+                ProgressView(value: model.isPaused ? 0 : max(model.remaining, 0) / model.duration)
+                    .progressViewStyle(.linear)
+                    .opacity(model.isPaused ? 0 : 1)
+            }
 
             HStack {
-                Button("Cancel") { model.cancel() }.keyboardShortcut(.cancelAction)
+                Text("Space preview · ←→ select · ⌥←→ move · drag to reorder")
+                    .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Merge") { model.confirm() }.keyboardShortcut(.defaultAction)
+                Button("Cancel  esc") { model.cancel() }
+                Button("Merge  ↩") { model.confirm() }.buttonStyle(.borderedProminent)
             }
         }
         .padding(14)
-        .frame(width: Self.width(for: model.items.count))
+        .frame(width: Self.width(for: model.items.count, previewing: model.isPreviewing))
         .background(VisualEffectBackground())
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
     }
 
-    static func width(for count: Int) -> CGFloat {
-        min(max(CGFloat(count) * (itemWidth + spacing) + 28, 360), 760)
+    static func width(for count: Int, previewing: Bool) -> CGFloat {
+        min(max(CGFloat(count) * (itemWidth + spacing) + 28, previewing ? 600 : 460), 760)
     }
 
     private func drag(_ item: TrayModel.Item) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                model.pause()
-                if draggingID == nil { draggingID = item.id; consumed = 0 }
+                if draggingID == nil { model.select(item.id); draggingID = item.id; consumed = 0 }
                 dragOffset = value.translation.width - consumed
                 let stride = Self.itemWidth + Self.spacing
                 let steps = Int((dragOffset / stride).rounded())
@@ -157,6 +210,7 @@ struct TrayView: View {
 private struct TrayItemView: View {
     let item: TrayModel.Item
     let position: Int
+    let selected: Bool
 
     var body: some View {
         VStack(spacing: 4) {
@@ -174,6 +228,9 @@ private struct TrayItemView: View {
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule().fill(Color.accentColor))
             }
+            .padding(3)
+            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.accentColor.opacity(0.18) : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 2))
             Text(item.file.url.lastPathComponent)
                 .font(.system(size: 10)).lineLimit(1).truncationMode(.middle)
         }
@@ -182,11 +239,30 @@ private struct TrayItemView: View {
     }
 }
 
-/// Key-capable but non-activating: Return/Esc go to the tray instead of Finder (where Return
-/// would start renaming the selected file), while Finder stays the active app.
-final class TrayPanel: NSPanel {
-    var onCancel: (() -> Void)?
+/// Inline Quick Look (scrollable for multi-page PDFs). Embedded in the tray rather than using the
+/// shared QLPreviewPanel, so keyboard focus stays in the tray and never falls back to Finder.
+private struct QuickLookPreview: NSViewRepresentable {
+    let url: URL
 
+    func makeNSView(context: Context) -> QLPreviewView {
+        let view: QLPreviewView = QLPreviewView(frame: .zero, style: .normal)
+        view.autostarts = true
+        view.previewItem = url as NSURL
+        return view
+    }
+
+    func updateNSView(_ view: QLPreviewView, context: Context) {
+        if (view.previewItem as? NSURL) as URL? != url { view.previewItem = url as NSURL }
+    }
+
+    static func dismantleNSView(_ view: QLPreviewView, coordinator: ()) {
+        view.close()
+    }
+}
+
+/// Key-capable but non-activating: keys go to the tray instead of Finder (where Return would
+/// rename and Space would open Finder's own Quick Look), while Finder stays the active app.
+final class TrayPanel: NSPanel {
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isFloatingPanel = true
@@ -199,37 +275,70 @@ final class TrayPanel: NSPanel {
     }
 
     override var canBecomeKey: Bool { true }
-    override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
 @MainActor
 final class ReorderTrayController {
     private let panel = TrayPanel()
+    private var keyMonitor: Any?
+    private var previewSubscription: AnyObject?
 
     /// Calls `completion` with the confirmed order, or nil if cancelled.
     func present(files: [FileDescriptor], near point: NSPoint, completion: @escaping ([FileDescriptor]?) -> Void) {
         let previousApp = NSWorkspace.shared.frontmostApplication
         let model = TrayModel(files: files)
         model.onFinish = { [weak self] result in
-            self?.panel.orderOut(nil)
-            self?.panel.contentView = nil
+            guard let self else { return }
+            if let keyMonitor = self.keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            self.keyMonitor = nil
+            self.previewSubscription = nil
+            self.panel.orderOut(nil)
+            self.panel.contentViewController = nil
             previousApp?.activate()  // hand key focus straight back to Finder
             completion(result)
         }
-        panel.onCancel = { [weak model] in model?.cancel() }
 
-        let host = FirstMouseHostingView(rootView: TrayView(model: model))
-        let size = host.fittingSize
-        panel.contentView = host
+        // The window follows the SwiftUI size, so it grows when the preview opens.
+        let host = NSHostingController(rootView: TrayView(model: model))
+        host.sizingOptions = [.preferredContentSize]
+        panel.contentViewController = host
+        let size = host.view.fittingSize
         let screen = (NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main)
-        var origin = NSPoint(x: point.x - size.width / 2, y: point.y + 24)
-        if let vf = screen?.visibleFrame {
-            origin.x = min(max(origin.x, vf.minX + 8), vf.maxX - size.width - 8)
-            origin.y = min(max(origin.y, vf.minY + 8), vf.maxY - size.height - 8)
-        }
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        panel.setFrame(NSRect(origin: NSPoint(x: point.x - size.width / 2, y: point.y + 24), size: size), display: true)
+        keepOnScreen(screen)
         panel.makeKeyAndOrderFront(nil)
+
+        previewSubscription = model.$isPreviewing.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.keepOnScreen(screen) }
+        }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak model] event in
+            guard let self, let model, event.window === self.panel else { return event }
+            let keyCode = event.keyCode
+            let option = event.modifierFlags.contains(.option)
+            MainActor.assumeIsolated { Self.handleKey(keyCode, option: option, model: model) }
+            return nil  // every key is handled here, so none falls through to Finder
+        }
+
         model.loadThumbnails(scale: screen?.backingScaleFactor ?? 2)
         model.start()
+    }
+
+    private static func handleKey(_ keyCode: UInt16, option: Bool, model: TrayModel) {
+        switch keyCode {
+        case 49: model.togglePreview()                                        // Space
+        case 123: option ? model.moveSelected(by: -1) : model.selectNeighbor(-1)  // ←
+        case 124: option ? model.moveSelected(by: 1) : model.selectNeighbor(1)    // →
+        case 36, 76: model.confirm()                                          // Return / Enter
+        case 53: model.isPreviewing ? model.togglePreview() : model.cancel()  // Esc closes preview first
+        default: model.pause()  // any other key just stops the countdown
+        }
+    }
+
+    private func keepOnScreen(_ screen: NSScreen?) {
+        guard let vf = screen?.visibleFrame else { return }
+        var frame = panel.frame
+        frame.origin.x = min(max(frame.origin.x, vf.minX + 8), vf.maxX - frame.width - 8)
+        frame.origin.y = min(max(frame.origin.y, vf.minY + 8), vf.maxY - frame.height - 8)
+        panel.setFrame(frame, display: true)
     }
 }
