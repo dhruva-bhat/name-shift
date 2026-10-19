@@ -65,7 +65,7 @@ struct WheelView: View {
     /// Screen point (SwiftUI, y-down) for an angle measured clockwise from 12 o'clock.
     static func point(angle: Double, radius: CGFloat) -> CGPoint {
         let c = WheelPanel.diameter / 2
-        return CGPoint(x: c + radius * sin(angle), y: c - radius * cos(angle))
+        return CGPoint(x: c + radius * CGFloat(sin(angle)), y: c - radius * CGFloat(cos(angle)))
     }
 }
 
@@ -97,7 +97,7 @@ struct SectorShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let c = CGPoint(x: rect.midX, y: rect.midY)
-        func point(_ a: Double, _ r: CGFloat) -> CGPoint { CGPoint(x: c.x + r * sin(a), y: c.y - r * cos(a)) }
+        func point(_ a: Double, _ r: CGFloat) -> CGPoint { CGPoint(x: c.x + r * CGFloat(sin(a)), y: c.y - r * CGFloat(cos(a))) }
         let steps = 32
         var path = Path()
         path.move(to: point(start, outer))

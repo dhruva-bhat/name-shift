@@ -20,9 +20,9 @@ import Testing
     @Test func boundaryJustLeftOfTopWrapsToSliceZero() {
         // 29° counter-clockwise from top is still inside slice 0 (±30°).
         let a = -29.0 * .pi / 180
-        #expect(g.sliceIndex(for: CGVector(dx: 100 * sin(a), dy: 100 * cos(a))) == 0)
+        #expect(g.sliceIndex(for: CGVector(dx: CGFloat(100 * sin(a)), dy: CGFloat(100 * cos(a)))) == 0)
         let b = -31.0 * .pi / 180
-        #expect(g.sliceIndex(for: CGVector(dx: 100 * sin(b), dy: 100 * cos(b))) == 5)
+        #expect(g.sliceIndex(for: CGVector(dx: CGFloat(100 * sin(b)), dy: CGFloat(100 * cos(b)))) == 5)
     }
 }
 
